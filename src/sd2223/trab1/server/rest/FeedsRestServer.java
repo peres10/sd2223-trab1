@@ -5,6 +5,7 @@ import sd2223.trab1.api.service.java.Feeds;
 import sd2223.trab1.server.util.CustomLoggingFilter;
 import sd2223.trab1.server.util.Token;
 
+import java.util.Locale;
 import java.util.logging.Logger;
 
 public class FeedsRestServer extends AbstractRestServer{
@@ -13,9 +14,14 @@ public class FeedsRestServer extends AbstractRestServer{
 
     private static Logger Log = Logger.getLogger(FeedsRestServer.class.getName());
 
+    private static String domain;
     protected FeedsRestServer() {
         super(Log, Feeds.SERVICE_NAME, PORT);
         Log.info("server\n");
+    }
+
+    protected FeedsRestServer(String service) {
+        super(Log, service, PORT);
     }
 
     @Override
@@ -25,9 +31,7 @@ public class FeedsRestServer extends AbstractRestServer{
     }
 
     public static void main(String[] args) throws Exception{
-        Log.info("Antes do start do server\n");
         Token.set( args.length > 0 ? args[0] : "");
         new FeedsRestServer().start();
-        Log.info("Deu start do server\n");
     }
 }

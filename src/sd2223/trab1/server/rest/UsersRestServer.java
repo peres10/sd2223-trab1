@@ -3,6 +3,7 @@ package sd2223.trab1.server.rest;
 import org.glassfish.jersey.server.ResourceConfig;
 import sd2223.trab1.api.service.java.Users;
 import sd2223.trab1.server.util.CustomLoggingFilter;
+import sd2223.trab1.server.util.Token;
 
 import java.net.UnknownHostException;
 import java.util.logging.Logger;
@@ -23,6 +24,7 @@ public class UsersRestServer extends AbstractRestServer{
     }
 
     public static void main(String[] args) throws Exception {
+        Token.set( args.length > 0 ? args[0] : "");
         new UsersRestServer().start();
     }
 }
