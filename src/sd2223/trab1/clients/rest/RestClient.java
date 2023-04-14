@@ -5,17 +5,15 @@ import jakarta.ws.rs.client.ClientBuilder;
 import jakarta.ws.rs.client.WebTarget;
 import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.Response;
-import org.checkerframework.checker.units.qual.C;
 import org.glassfish.jersey.client.ClientConfig;
 import org.glassfish.jersey.client.ClientProperties;
-import sd2223.trab1.api.service.java.Result;
-import sd2223.trab1.clients.ClientFactory;
+import sd2223.trab1.api.java.Result;
 import sd2223.trab1.clients.common.RetryClient;
 
 import java.net.URI;
 
-import static sd2223.trab1.api.service.java.Result.error;
-import static sd2223.trab1.api.service.java.Result.ok;
+import static sd2223.trab1.api.java.Result.error;
+import static sd2223.trab1.api.java.Result.ok;
 
 public class RestClient extends RetryClient {
     protected final URI uri;

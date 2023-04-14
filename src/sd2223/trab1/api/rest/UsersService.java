@@ -1,4 +1,4 @@
-package sd2223.trab1.api.service.rest;
+package sd2223.trab1.api.rest;
 
 import java.util.List;
 
@@ -94,5 +94,17 @@ public interface UsersService {
 	@GET
 	@Produces(MediaType.APPLICATION_JSON)
 	List<User> searchUsers(@QueryParam(QUERY) String pattern);
+
+	/**
+	 * Extended Users Service
+	 */
+
+	/**
+	 * Finds a user giving only its name
+	 */
+	@GET
+	@Path("/{" + NAME+ "}/find")
+	@Produces(MediaType.APPLICATION_JSON)
+	User findUser(@PathParam(NAME) String name);
 
 }

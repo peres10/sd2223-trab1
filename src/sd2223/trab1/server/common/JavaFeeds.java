@@ -5,8 +5,10 @@ import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import sd2223.trab1.api.Message;
 import sd2223.trab1.api.User;
-import sd2223.trab1.api.service.java.Feeds;
-import sd2223.trab1.api.service.java.Result;
+import sd2223.trab1.api.java.Feeds;
+import sd2223.trab1.api.java.Result;
+import sd2223.trab1.api.java.Users;
+import sd2223.trab1.server.util.Token;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -14,13 +16,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
-import static sd2223.trab1.api.service.java.Result.ErrorCode.*;
-import static sd2223.trab1.api.service.java.Result.error;
-import static sd2223.trab1.api.service.java.Result.ok;
+import static sd2223.trab1.api.java.Result.ErrorCode.*;
+import static sd2223.trab1.api.java.Result.error;
+import static sd2223.trab1.api.java.Result.ok;
 import static sd2223.trab1.clients.Clients.UsersClients;
 
 public class JavaFeeds implements Feeds {
@@ -30,38 +31,23 @@ public class JavaFeeds implements Feeds {
     private static long lastMessageId = 0;
     final protected Map<Long, Message> allMessages = new ConcurrentHashMap<>();
     final protected Map<String, List<Long>> userMessages = new ConcurrentHashMap<>();
-    final protected Map<String, List<User>> usersFollowed = new ConcurrentHashMap<>();
+    final protected Map<String, List<String>> usersSubscribedTo = new ConcurrentHashMap<>();
 
-    static final LoadingCache<UserCredentials, Result<User>> loggedUsersCache = CacheBuilder.newBuilder()
+    final protected Map<String ,List<String>> usersSubscribing = new ConcurrentHashMap<>();
+
+    static final LoadingCache<String, User> users = CacheBuilder.newBuilder()
             .expireAfterWrite(Duration.ofMillis(20000))
             .build(new CacheLoader<>() {
                 @Override
-                public Result<User> load(UserCredentials userCredentials) throws Exception {
-                    var res = UsersClients.get().getUser( userCredentials.userId, userCredentials.pwd());
-                    if( res.error() == Result.ErrorCode.TIMEOUT)
-                        return error(BAD_REQUEST);
-                    else
-                        return res;
-                }
-            });
-
-    static final LoadingCache<String, Result<List<User>>> allUsersByPatternsCache = CacheBuilder.newBuilder()
-            .expireAfterWrite(Duration.ofMillis(20000))
-            .build(new CacheLoader<String, Result<List<User>>>() {
-                @Override
-                public Result<List<User>> load(String userId) throws Exception {
-                    var res = UsersClients.get().searchUsers( userId );
-                    if( res.error() == TIMEOUT)
-                        return error(BAD_REQUEST);
-                    else
-                        return res;
+                public User load(String name) throws Exception {
+                    return UsersClients.get(Token.get() + ":" + Users.SERVICE_NAME).findUser(name).value();
                 }
             });
 
 
     @Override
     public Result<Long> postMessage(String user, String pwd, Message msg) {
-        msg.setId(lastMessageId++);
+        msg.setId(generateRandomId());
         Log.info(String.format("REST: postMessage: user = %s, password = %s + MSG: ",user,pwd)+msg);
 
         if (JavaCommonMethods.nullValue(user) || JavaCommonMethods.nullValue(pwd)
@@ -69,9 +55,13 @@ public class JavaFeeds implements Feeds {
             return error(BAD_REQUEST);
 
         String userId = user.split("@")[0];
-        var userPosting = getUser(userId, pwd);
-        if(!userPosting.isOK()) {
-            return error(userPosting.error());
+        var userPosting = getUser(userId);
+        if (JavaCommonMethods.nullValue(userPosting)){
+            return error(NOT_FOUND);
+        }
+
+        if(wrongPassword(userPosting,pwd)) {
+            return error(FORBIDDEN);
         }
 
         List<Long> msgList = userMessages.get(userId);
@@ -86,9 +76,28 @@ public class JavaFeeds implements Feeds {
         }
 
         synchronized (allMessages) {
-            allMessages.put(msg.getId(), msg);
+            allMessages.putIfAbsent(msg.getId(), msg);
         }
+
+        //putMessageInAllSubscribersFeed(userId,msg.getId());
+
         return ok(msg.getId());
+    }
+
+    private void putMessageInAllSubscribersFeed(String userId,long mid){
+        List<String> subscribers = usersSubscribing.get(userId);
+        if(subscribers!= null) {
+            List<Long> userMessagesList;
+            String subscriberId;
+            for (String u : subscribers) {
+                subscriberId = u.split("@")[0];
+                userMessagesList = userMessages.get(subscriberId);
+                if (userMessagesList == null)
+                    userMessagesList = new ArrayList<>();
+                userMessages.put(subscriberId, userMessagesList);
+                userMessagesList.add(mid);
+            }
+        }
     }
 
     @Override
@@ -101,19 +110,15 @@ public class JavaFeeds implements Feeds {
             return error(BAD_REQUEST);
         }
 
-        System.out.println(allMessages.keySet());
         Message msg = allMessages.get(mid);
-        Log.info(msg+"\n");
 
-        if ( JavaCommonMethods.nullValue(msg) ) {
+        if ( JavaCommonMethods.nullValue(msg) || !getIfUserExists(userId)){
+            Log.info("aaaaaa\n");
             return error(NOT_FOUND);
         }
 
-        if(!userMessages.containsKey(userId)){
-            return error(NOT_FOUND);
-        }
-
-        if(!checkIfMessageBelongsToUser(userId,mid)) {
+        if(!checkIfMessageIsInUserFeed(userId,msg)) {
+            Log.info("bbbbbbbbb\n");
             return error(NOT_FOUND);
         }
 
@@ -129,25 +134,62 @@ public class JavaFeeds implements Feeds {
             return error(BAD_REQUEST);
         }
 
-        try {
-            if (!userMessages.containsKey(userId)) {
-                if (!getIfUserExists(userId))
-                    return error(NOT_FOUND);
-                else
-                    userMessages.put(userId, new ArrayList<>());
-            }
-        } catch(ExecutionException e) {
-            return error(INTERNAL_ERROR);
+        var userToSearch = getUser(userId);
+        if (JavaCommonMethods.nullValue(userToSearch)){
+            return error(NOT_FOUND);
         }
 
+        if (!userMessages.containsKey(userId)) {
+            userMessages.put(userId, new ArrayList<>());
+        }
         var messageIDsFromUser = messagesFromUserSinceTime(userMessages.get(userId), time);
+        var usersFollowing = usersSubscribedTo.get(userId);
+        if(usersFollowing == null) {
+            usersFollowing = new ArrayList<>();
+            usersSubscribedTo.putIfAbsent(userId,usersFollowing);
+        }
+
+        Log.info("--\n");
+        Log.info(usersFollowing.toString());
+        Log.info("--\n");
+        var messagesFromSubscribers= joinMessagesFromFollowing(usersFollowing,time);
+
+        messageIDsFromUser.addAll(messagesFromSubscribers);
 
         return ok(messageIDsFromUser);
     }
 
     @Override
     public Result<Void> subUser(String user, String userSub, String pwd) {
-        return null;
+        Log.info(String.format("REST: subUser: subscriber = %s subscribing = %s \n", user,userSub));
+        String userSubcriberId = user.split("@")[0];
+        String userSubcribingId = userSub.split("@")[0];
+
+        var userSubscriber = getUser(userSubcriberId);
+        if(JavaCommonMethods.nullValue(userSubscriber) || wrongPassword(userSubscriber,pwd))
+            return error(FORBIDDEN);
+
+        var userSubscribing = getUser(userSubcribingId);
+        if(JavaCommonMethods.nullValue(userSubscribing))
+            return error(NOT_FOUND);
+
+        List<String> subscribingList = usersSubscribedTo.get(userSubcriberId);
+        if (subscribingList == null)
+            subscribingList = new ArrayList<>();
+
+        if(!subscribingList.contains(userSub))
+            subscribingList.add(userSub);
+
+        List<String> subscribersList = usersSubscribing.get(userSubscribing);
+        if(subscribersList == null)
+            subscribersList = new ArrayList<>();
+        if(!subscribersList.contains(user))
+            subscribersList.add(user);
+
+        usersSubscribedTo.put(userSubcriberId,subscribingList);
+        usersSubscribing.put(userSubcribingId,subscribersList);
+        System.out.println(usersSubscribedTo.get(userSubcriberId));
+        return ok();
     }
 
     @Override
@@ -157,27 +199,55 @@ public class JavaFeeds implements Feeds {
 
     @Override
     public Result<List<String>> listSubs(String user) {
-        return null;
+        Log.info(String.format("REST: listSub: user = %s \n", user));
+        String userId = user.split("@")[0];
+        if(JavaCommonMethods.nullValue(userId))
+            return error(NOT_FOUND);
+
+        var listOfSubscriptions = usersSubscribedTo.get(userId);
+        if(JavaCommonMethods.nullValue(listOfSubscriptions)){
+            listOfSubscriptions = new ArrayList<>();
+            usersSubscribedTo.putIfAbsent(userId, listOfSubscriptions);
+        }
+
+        return ok(usersSubscribedTo.get(userId));
+
     }
 
-    static record UserCredentials(String userId, String pwd){
-    }
 
-    private Result<User> getUser(String userId, String pwd){
+    private User getUser(String name){
+        Log.info(String.format("checkpoint 2.1\n"));
         try{
-            UserCredentials userCrds = new UserCredentials(userId,pwd);
-            return loggedUsersCache.get(userCrds);
+            Log.info(String.format("checkpoint 2.11\n"));
+            return users.get(name);
         } catch (Exception x) {
-            return error(INTERNAL_ERROR);
+            Log.info(String.format("entrou no error\n"));
+            return null;
         }
     }
 
-    private boolean getIfUserExists(String userId) throws ExecutionException {
-        Result<List<User>> usersWithPattern = allUsersByPatternsCache.get(userId);
-        Log.info(usersWithPattern.value().toString());
-        return usersWithPattern.value().contains(userId);
+    private boolean getIfUserExists(String userId) {
+        return getUser(userId) != null;
     }
 
+    private List<Message> joinMessagesFromFollowing(List<String> usersFollowing, long time){
+        List<Message> messages = new ArrayList<>();
+        for(String u : usersFollowing){
+            String userId = u.split("@")[0];
+            Log.info("--\n");
+            Log.info(userId);
+            Log.info("--\n");
+            Log.info(userMessages.get(userId).toString());
+            Log.info("--\n");
+            List<Message> uMessages = messagesFromUserSinceTime(userMessages.get(userId),time);
+            messages.addAll(uMessages);
+        }
+        return messages;
+    }
+
+    /*private boolean checkIfMessageInFeed(String user,Message msg){
+        return ;
+    }*/
 
     private long generateRandomId(){
         long min = 0;
@@ -198,7 +268,19 @@ public class JavaFeeds implements Feeds {
                 .collect(Collectors.toList());
     }
 
-    private boolean checkIfMessageBelongsToUser(String userId, long mid){
-        return userMessages.get(userId).contains(mid);
+    private boolean checkIfMessageIsInUserFeed(String userId, Message msg){
+        String msgOwner = msg.getUser() + "@" + msg.getDomain();
+        Log.info(msgOwner);
+        Log.info("--\n");
+        Log.info(userMessages.get(userId).toString());
+        Log.info("--\n");
+        if(usersSubscribedTo.containsKey(userId))
+            Log.info(usersSubscribedTo.get(userId).toString());
+        return userMessages.get(userId).contains(msg.getId()) || usersSubscribedTo.get(userId).contains(msgOwner);
+    }
+
+    private boolean wrongPassword(User user, String pwd){
+        if (user == null) return true;
+        return !user.getPwd().equals(pwd) ;
     }
 }

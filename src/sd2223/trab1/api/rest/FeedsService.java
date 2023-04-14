@@ -1,4 +1,4 @@
-package sd2223.trab1.api.service.rest;
+package sd2223.trab1.api.rest;
 
 import java.util.List;
 
@@ -134,6 +134,7 @@ public interface FeedsService {
 	@Path("/sub/list/{" + USER + "}")
 	@Produces(MediaType.APPLICATION_JSON)
 	List<String> listSubs(@PathParam(USER) String user);
+
 
 
 }

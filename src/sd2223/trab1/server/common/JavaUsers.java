@@ -1,21 +1,22 @@
 package sd2223.trab1.server.common;
 
 import sd2223.trab1.api.User;
-import sd2223.trab1.api.service.java.Result;
-import sd2223.trab1.api.service.java.Users;
+import sd2223.trab1.api.java.Result;
+import sd2223.trab1.api.java.Users;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Logger;
 
-import static sd2223.trab1.api.service.java.Result.ErrorCode.*;
-import static sd2223.trab1.api.service.java.Result.error;
-import static sd2223.trab1.api.service.java.Result.ok;
+import static sd2223.trab1.api.java.Result.ErrorCode.*;
+import static sd2223.trab1.api.java.Result.error;
+import static sd2223.trab1.api.java.Result.ok;
 
 public class JavaUsers implements Users {
     final protected Map<String, User> users = new ConcurrentHashMap<>();
 
+    private static Logger Log = Logger.getLogger(JavaUsers.class.getName());
     @Override
     public Result<String> createUser(User user) {
         if( JavaCommonMethods.badUser(user))
@@ -31,14 +32,13 @@ public class JavaUsers implements Users {
     }
 
     @Override
-    public Result<User> getUser(String userId, String password) {
-        if (JavaCommonMethods.nullValue(userId) || JavaCommonMethods.nullValue(password))
+    public Result<User> getUser(String name, String password) {
+        if (JavaCommonMethods.nullValue(name) || JavaCommonMethods.nullValue(password))
             return error(BAD_REQUEST);
-        var user = users.get(userId);
+        var user = users.get(name);
 
         if(user == null)
             return error(NOT_FOUND);
-
         if(JavaCommonMethods.wrongPwd(user, password))
             return error(FORBIDDEN);
         else
@@ -46,8 +46,11 @@ public class JavaUsers implements Users {
     }
 
     @Override
-    public Result<User> updateUser(String userId, String password, User user) {
-        var olduser = users.get(userId);
+    public Result<User> updateUser(String name, String password, User user) {
+        var olduser = users.get(name);
+
+        if(!user.getName().equals(name))
+            return error(BAD_REQUEST);
 
         if(olduser == null)
             return error(NOT_FOUND);
@@ -61,11 +64,11 @@ public class JavaUsers implements Users {
     }
 
     @Override
-    public Result<User> deleteUser(String userId, String password) {
-        if (JavaCommonMethods.nullValue(userId) || JavaCommonMethods.nullValue(password))
+    public Result<User> deleteUser(String name, String password) {
+        if (JavaCommonMethods.nullValue(name) || JavaCommonMethods.nullValue(password))
             return error(BAD_REQUEST);
 
-        var user = users.get(userId);
+        var user = users.get(name);
 
         if(user == null)
             return error(NOT_FOUND);
@@ -73,7 +76,7 @@ public class JavaUsers implements Users {
         if(JavaCommonMethods.wrongPwd(user, password))
             return error(FORBIDDEN);
         else {
-            users.remove(userId);
+            users.remove(name);
             return ok(user);
         }
 
@@ -90,6 +93,19 @@ public class JavaUsers implements Users {
                 .toList();
 
         return ok(hits);
+    }
+
+    @Override
+    public Result<User> findUser(String name) {
+        if ( JavaCommonMethods.nullValue( name ))
+            return error(BAD_REQUEST);
+
+        var user = users.get(name);
+
+        if(user==null)
+            return error(NOT_FOUND);
+        else
+            return ok(user);
     }
 
 }

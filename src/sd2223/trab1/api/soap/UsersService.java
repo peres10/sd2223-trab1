@@ -1,4 +1,4 @@
-package sd2223.trab1.api.service.soap;
+package sd2223.trab1.api.soap;
 
 import java.util.List;
 
@@ -59,4 +59,15 @@ public interface UsersService {
      */
     @WebMethod
     List<User> searchUsers(String pattern) throws UsersException;
+
+
+    /**
+     * Extended Users Service
+     */
+    /**
+     * Finds a user giving only its name
+     */
+    @WebMethod
+    User findUser(String name) throws UsersException;
+
 }

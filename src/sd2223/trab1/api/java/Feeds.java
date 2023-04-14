@@ -1,4 +1,4 @@
-package sd2223.trab1.api.service.java;
+package sd2223.trab1.api.java;
 
 import sd2223.trab1.api.Message;
 
@@ -10,7 +10,7 @@ public interface Feeds {
 
     Result<Long> postMessage(String user, String pwd, Message msg);
 
-    Result<Message> getMessage(String user, long mid);
+    Result<Message> getMessage(String user, long mid) ;
 
     Result<List<Message>> getMessages(String user, long time);
 

@@ -2,7 +2,7 @@ package sd2223.trab1.server.rest;
 
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response.Status;
-import sd2223.trab1.api.service.java.Result;
+import sd2223.trab1.api.java.Result;
 
 public class RestResource {
 

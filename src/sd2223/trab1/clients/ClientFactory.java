@@ -3,13 +3,9 @@ package sd2223.trab1.clients;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
-import sd2223.trab1.api.service.java.Result;
-import sd2223.trab1.api.service.java.Result.ErrorCode;
-import sd2223.trab1.server.common.JavaFeeds;
 import sd2223.trab1.server.resources.Discovery;
 
 import java.net.URI;
-import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
 import java.util.logging.Logger;
 
@@ -44,21 +40,17 @@ public class ClientFactory<T>{
                 }
             });
 
-    public T get(){
-        URI[] uris = Discovery.getInstance().knownUrisOf(serviceName, 1);
-        return get(uris[0]);
+    public T get ( String fullServiceName){
+        URI[] uris = Discovery.getInstance().knownUrisOf(fullServiceName,1);
+        return getByUri(uris[0].toString());
     }
 
-    public T get(URI uri){
+    public T getByUri(String uriString){
         try{
-            return clients.get(uri);
-        } catch (ExecutionException e) {
-            throw new RuntimeException(ErrorCode.INTERNAL_ERROR.toString());
+            return clients.get(URI.create(uriString));
+        } catch (Exception x){
+            x.printStackTrace();
         }
-    }
-
-    public T get(String urlString){
-        var i = urlString.indexOf(serviceName);
-        return this.get( URI.create(urlString.substring(0, i-1)));
+        return null;
     }
 }

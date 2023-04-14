@@ -2,8 +2,8 @@ package sd2223.trab1.server.rest;
 
 import jakarta.inject.Singleton;
 import sd2223.trab1.api.Message;
-import sd2223.trab1.api.service.java.Feeds;
-import sd2223.trab1.api.service.rest.FeedsService;
+import sd2223.trab1.api.java.Feeds;
+import sd2223.trab1.api.rest.FeedsService;
 import sd2223.trab1.server.common.JavaFeeds;
 
 import java.util.List;
@@ -39,6 +39,7 @@ public class FeedsResources extends RestResource implements FeedsService {
 
     @Override
     public void subUser(String user, String userSub, String pwd) {
+        super.fromJavaResult(impl.subUser(user,userSub,pwd));
     }
 
     @Override
@@ -47,6 +48,6 @@ public class FeedsResources extends RestResource implements FeedsService {
 
     @Override
     public List<String> listSubs(String user) {
-        return null;
+        return super.fromJavaResult(impl.listSubs(user)) ;
     }
 }

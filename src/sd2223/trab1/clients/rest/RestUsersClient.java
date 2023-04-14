@@ -1,15 +1,13 @@
 package sd2223.trab1.clients.rest;
 
 import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.GenericEntity;
 import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import sd2223.trab1.api.User;
-import sd2223.trab1.api.service.java.Result;
-import sd2223.trab1.api.service.java.Users;
-import sd2223.trab1.api.service.rest.UsersService;
-import sd2223.trab1.clients.Clients;
+import sd2223.trab1.api.java.Result;
+import sd2223.trab1.api.java.Users;
+import sd2223.trab1.api.rest.UsersService;
 
 import java.net.URI;
 import java.util.List;
@@ -33,9 +31,9 @@ public class RestUsersClient extends RestClient implements Users {
     }
 
     @Override
-    public Result<User> getUser(String userId, String password) {
+    public Result<User> getUser(String name, String password) {
         Response r = target
-                .path(userId)
+                .path(name)
                 .queryParam(UsersService.PWD, password)
                 .request()
                 .accept(MediaType.APPLICATION_JSON)
@@ -45,9 +43,9 @@ public class RestUsersClient extends RestClient implements Users {
     }
 
     @Override
-    public Result<User> updateUser(String userId, String password, User user) {
+    public Result<User> updateUser(String name, String password, User user) {
         Response r = target
-                .path(userId)
+                .path(name)
                 .queryParam(UsersService.PWD, password)
                 .request()
                 .accept(MediaType.APPLICATION_JSON)
@@ -57,9 +55,9 @@ public class RestUsersClient extends RestClient implements Users {
     }
 
     @Override
-    public Result<User> deleteUser(String userId, String password) {
+    public Result<User> deleteUser(String name, String password) {
         Response r = target
-                .path(userId)
+                .path(name)
                 .queryParam(UsersService.PWD, password)
                 .request()
                 .accept(MediaType.APPLICATION_JSON)
@@ -77,6 +75,16 @@ public class RestUsersClient extends RestClient implements Users {
                 .get();
 
         return super.toJavaResult(r, new GenericType<List<User>>() {});
+    }
+
+    @Override
+    public Result<User> findUser(String name) {
+        Response r = target
+                .path(name).path("/find")
+                .request()
+                .accept(MediaType.APPLICATION_JSON)
+                .get();
+        return super.toJavaResult(r, new GenericType<User>(){});
     }
 
 }

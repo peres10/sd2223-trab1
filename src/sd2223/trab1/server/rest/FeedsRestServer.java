@@ -1,11 +1,10 @@
 package sd2223.trab1.server.rest;
 
 import org.glassfish.jersey.server.ResourceConfig;
-import sd2223.trab1.api.service.java.Feeds;
+import sd2223.trab1.api.java.Feeds;
 import sd2223.trab1.server.util.CustomLoggingFilter;
 import sd2223.trab1.server.util.Token;
 
-import java.util.Locale;
 import java.util.logging.Logger;
 
 public class FeedsRestServer extends AbstractRestServer{
@@ -18,10 +17,6 @@ public class FeedsRestServer extends AbstractRestServer{
     protected FeedsRestServer() {
         super(Log, Feeds.SERVICE_NAME, PORT);
         Log.info("server\n");
-    }
-
-    protected FeedsRestServer(String service) {
-        super(Log, service, PORT);
     }
 
     @Override

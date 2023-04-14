@@ -107,7 +107,7 @@ class DiscoveryImpl implements Discovery {
 
 	@Override
 	public URI[] knownUrisOf(String serviceName, int minEntries) {
-		var knownURIs = new ArrayList<URI>();
+		/*var knownURIs = new ArrayList<URI>();
 		//var discoveredURIs = new HashMap<String, List<URI>>();
 		var totalReplies = 0;
 		while(totalReplies < minEntries){
@@ -126,7 +126,19 @@ class DiscoveryImpl implements Discovery {
 				storedAnnoucments.put(serviceName, new HashSet<>());
 			}
 		}
-		return knownURIs.toArray(new URI[0]);
+		return knownURIs.toArray(new URI[0]);*/
+		for(;;){
+			var results = storedAnnoucments.get(serviceName);
+			if (results != null && results.size() >= minEntries)
+				return results.toArray( new URI[results.size()]);
+			else{
+				try{
+					Thread.sleep(DISCOVERY_RETRY_TIMEOUT);
+				} catch (InterruptedException e){
+					e.printStackTrace();
+				}
+			}
+		}
 	}
 
 	private void startListener() {

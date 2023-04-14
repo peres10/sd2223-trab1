@@ -1,7 +1,7 @@
 package sd2223.trab1.clients.common;
 
 import jakarta.ws.rs.ProcessingException;
-import sd2223.trab1.api.service.java.Result;
+import sd2223.trab1.api.java.Result;
 
 import java.util.function.Supplier;
 import java.util.logging.Logger;
