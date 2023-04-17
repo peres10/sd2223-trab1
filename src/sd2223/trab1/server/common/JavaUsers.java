@@ -23,12 +23,13 @@ public class JavaUsers implements Users {
             return error( BAD_REQUEST );
 
         var userId = user.getName();
-        var res = users.putIfAbsent(userId, user);
+        synchronized (users) {
+            var res = users.putIfAbsent(userId, user);
+            if (res != null)
+                return error(CONFLICT);
+        }
 
-        if(res != null)
-            return error(CONFLICT);
-        else
-            return ok(userId + '@' + user.getDomain());
+        return ok(userId + '@' + user.getDomain());
     }
 
     @Override
@@ -57,10 +58,11 @@ public class JavaUsers implements Users {
 
         if(JavaCommonMethods.nullValue(password) || JavaCommonMethods.wrongPwd(olduser, password))
             return error(FORBIDDEN);
-        else{
+
+        synchronized (users) {
             olduser.updateUser(user);
-            return ok(olduser);
         }
+        return ok(olduser);
     }
 
     @Override
@@ -75,10 +77,11 @@ public class JavaUsers implements Users {
 
         if(JavaCommonMethods.wrongPwd(user, password))
             return error(FORBIDDEN);
-        else {
+        synchronized (users) {
             users.remove(name);
-            return ok(user);
         }
+
+        return ok(user);
 
     }
 

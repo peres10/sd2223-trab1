@@ -11,10 +11,7 @@ import sd2223.trab1.api.java.Users;
 import sd2223.trab1.server.util.Token;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
@@ -31,12 +28,12 @@ public class JavaFeeds implements Feeds {
     private static long lastMessageId = 0;
     final protected Map<Long, Message> allMessages = new ConcurrentHashMap<>();
     final protected Map<String, List<Long>> userMessages = new ConcurrentHashMap<>();
-    final protected Map<String, List<String>> usersSubscribedTo = new ConcurrentHashMap<>();
+    final protected Map<String, Set<String>> usersSubscribedTo = new ConcurrentHashMap<>();
 
     final protected Map<String ,List<String>> usersSubscribing = new ConcurrentHashMap<>();
 
     static final LoadingCache<String, User> users = CacheBuilder.newBuilder()
-            .expireAfterWrite(Duration.ofMillis(20000))
+            .expireAfterWrite(Duration.ofMillis(1000))
             .build(new CacheLoader<>() {
                 @Override
                 public User load(String name) throws Exception {
@@ -47,7 +44,7 @@ public class JavaFeeds implements Feeds {
 
     @Override
     public Result<Long> postMessage(String user, String pwd, Message msg) {
-        msg.setId(generateRandomId());
+        msg.setId(lastMessageId++);
         Log.info(String.format("REST: postMessage: user = %s, password = %s + MSG: ",user,pwd)+msg);
 
         if (JavaCommonMethods.nullValue(user) || JavaCommonMethods.nullValue(pwd)
@@ -84,21 +81,34 @@ public class JavaFeeds implements Feeds {
         return ok(msg.getId());
     }
 
-    private void putMessageInAllSubscribersFeed(String userId,long mid){
-        List<String> subscribers = usersSubscribing.get(userId);
-        if(subscribers!= null) {
-            List<Long> userMessagesList;
-            String subscriberId;
-            for (String u : subscribers) {
-                subscriberId = u.split("@")[0];
-                userMessagesList = userMessages.get(subscriberId);
-                if (userMessagesList == null)
-                    userMessagesList = new ArrayList<>();
-                userMessages.put(subscriberId, userMessagesList);
-                userMessagesList.add(mid);
-            }
+    @Override
+    public Result<Void> removeFromPersonalFeed(String user, long mid, String pwd) {
+        if(JavaCommonMethods.nullValue(user) || JavaCommonMethods.nullValue(mid) ||
+        JavaCommonMethods.nullValue(pwd))
+            return error(BAD_REQUEST);
+
+        String userId = user.split("@")[0];
+        var userOwner = getUser(userId);
+
+        if (JavaCommonMethods.nullValue(userOwner)){
+            return error(FORBIDDEN);
         }
+
+        if(wrongPassword(userOwner,pwd)){
+            return error(FORBIDDEN);
+        }
+
+        List<Long> ownerMessages =userMessages.get(userId);
+
+        if(!allMessages.containsKey(mid) || !ownerMessages.contains(mid))
+            return error(BAD_REQUEST);
+
+        ownerMessages.remove(mid);
+        allMessages.remove(mid);
+
+        return ok();
     }
+
 
     @Override
     public Result<Message> getMessage(String user, long mid) {
@@ -142,17 +152,19 @@ public class JavaFeeds implements Feeds {
         if (!userMessages.containsKey(userId)) {
             userMessages.put(userId, new ArrayList<>());
         }
+
         var messageIDsFromUser = messagesFromUserSinceTime(userMessages.get(userId), time);
+
         var usersFollowing = usersSubscribedTo.get(userId);
         if(usersFollowing == null) {
-            usersFollowing = new ArrayList<>();
+            usersFollowing = new HashSet<>();
             usersSubscribedTo.putIfAbsent(userId,usersFollowing);
         }
 
         Log.info("--\n");
         Log.info(usersFollowing.toString());
         Log.info("--\n");
-        var messagesFromSubscribers= joinMessagesFromFollowing(usersFollowing,time);
+        var messagesFromSubscribers= joinMessagesFromFollowing(usersFollowing.stream().toList(),time);
 
         messageIDsFromUser.addAll(messagesFromSubscribers);
 
@@ -173,9 +185,9 @@ public class JavaFeeds implements Feeds {
         if(JavaCommonMethods.nullValue(userSubscribing))
             return error(NOT_FOUND);
 
-        List<String> subscribingList = usersSubscribedTo.get(userSubcriberId);
+        Set<String> subscribingList = usersSubscribedTo.get(userSubcriberId);
         if (subscribingList == null)
-            subscribingList = new ArrayList<>();
+            subscribingList = new HashSet<>();
 
         if(!subscribingList.contains(userSub))
             subscribingList.add(userSub);
@@ -194,23 +206,47 @@ public class JavaFeeds implements Feeds {
 
     @Override
     public Result<Void> unsubscribeUser(String user, String userSub, String pwd) {
-        return null;
+        Log.info(String.format("REST: unsubscribeUser: subscriber = %s subscribing = %s \n", user,userSub));
+        String userSubcriberId = user.split("@")[0];
+        String userUnsubcribingId = userSub.split("@")[0];
+
+        var userSubscriber = getUser(userSubcriberId);
+        if(JavaCommonMethods.nullValue(userSubscriber) || wrongPassword(userSubscriber,pwd))
+            return error(FORBIDDEN);
+
+        var userUnsubscribing = getUser(userUnsubcribingId);
+        if(JavaCommonMethods.nullValue(userUnsubcribingId)) {
+            Log.info("not found 1\n");
+            return error(NOT_FOUND);
+        }
+
+        var usersSubscribed = usersSubscribedTo.get(userSubcriberId);
+        Log.info(usersSubscribed.toString());
+        if(!usersSubscribed.contains(userSub)) {
+            Log.info("not found 2\n");
+            return error(NOT_FOUND);
+        }
+
+        else
+            usersSubscribed.remove(userUnsubcribingId);
+
+        return ok();
     }
 
     @Override
     public Result<List<String>> listSubs(String user) {
         Log.info(String.format("REST: listSub: user = %s \n", user));
         String userId = user.split("@")[0];
-        if(JavaCommonMethods.nullValue(userId))
+        if(JavaCommonMethods.nullValue(userId) || getUser(userId) == null)
             return error(NOT_FOUND);
 
         var listOfSubscriptions = usersSubscribedTo.get(userId);
         if(JavaCommonMethods.nullValue(listOfSubscriptions)){
-            listOfSubscriptions = new ArrayList<>();
+            listOfSubscriptions = new HashSet<>();
             usersSubscribedTo.putIfAbsent(userId, listOfSubscriptions);
         }
 
-        return ok(usersSubscribedTo.get(userId));
+        return ok(usersSubscribedTo.get(userId).stream().toList());
 
     }
 
@@ -231,15 +267,19 @@ public class JavaFeeds implements Feeds {
     }
 
     private List<Message> joinMessagesFromFollowing(List<String> usersFollowing, long time){
+        Log.info("aaaaaa\n");
         List<Message> messages = new ArrayList<>();
         for(String u : usersFollowing){
             String userId = u.split("@")[0];
             Log.info("--\n");
             Log.info(userId);
             Log.info("--\n");
-            Log.info(userMessages.get(userId).toString());
-            Log.info("--\n");
-            List<Message> uMessages = messagesFromUserSinceTime(userMessages.get(userId),time);
+            //Log.info(userMessages.get(userId).toString());
+            Log.info("vvvvv\n");
+            List<Long> userMessagesMids = userMessages.get(userId);
+            if(userMessagesMids == null)
+                continue;
+            List<Message> uMessages = messagesFromUserSinceTime(userMessagesMids,time);
             messages.addAll(uMessages);
         }
         return messages;
@@ -261,11 +301,25 @@ public class JavaFeeds implements Feeds {
     }
 
     private List<Message> messagesFromUserSinceTime(List<Long> midS, long time){
+        Log.info("lllllllll\n");
         return midS.stream()
                 .filter(msgId -> allMessages.containsKey(msgId) &&
-                        allMessages.get(msgId).getCreationTime() >= time)
+                        allMessages.get(msgId).getCreationTime() > time)
                 .map(allMessages::get)
                 .collect(Collectors.toList());
+
+        /*List<Message> messages = new ArrayList<>();
+        for( long mid : midS){
+            Message msg = allMessages.get(mid);
+            if (msg == null)
+                continue;
+            if (msg.getCreationTime() < time)
+                continue;
+            else
+                messages.add(msg);
+        }
+        Log.info("ppppppppppppp\n");
+        return messages;*/
     }
 
     private boolean checkIfMessageIsInUserFeed(String userId, Message msg){
@@ -282,5 +336,21 @@ public class JavaFeeds implements Feeds {
     private boolean wrongPassword(User user, String pwd){
         if (user == null) return true;
         return !user.getPwd().equals(pwd) ;
+    }
+
+    private void putMessageInAllSubscribersFeed(String userId,long mid){
+        List<String> subscribers = usersSubscribing.get(userId);
+        if(subscribers!= null) {
+            List<Long> userMessagesList;
+            String subscriberId;
+            for (String u : subscribers) {
+                subscriberId = u.split("@")[0];
+                userMessagesList = userMessages.get(subscriberId);
+                if (userMessagesList == null)
+                    userMessagesList = new ArrayList<>();
+                userMessages.put(subscriberId, userMessagesList);
+                userMessagesList.add(mid);
+            }
+        }
     }
 }

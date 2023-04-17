@@ -25,6 +25,7 @@ public class FeedsResources extends RestResource implements FeedsService {
 
     @Override
     public void removeFromPersonalFeed(String user, long mid, String pwd) {
+        super.fromJavaResult(impl.removeFromPersonalFeed(user,mid,pwd));
     }
 
     @Override
@@ -44,6 +45,7 @@ public class FeedsResources extends RestResource implements FeedsService {
 
     @Override
     public void unsubscribeUser(String user, String userSub, String pwd) {
+        super.fromJavaResult(impl.unsubscribeUser(user,userSub,pwd));
     }
 
     @Override
