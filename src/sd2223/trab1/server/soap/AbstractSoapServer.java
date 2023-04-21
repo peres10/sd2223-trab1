@@ -3,7 +3,7 @@ package sd2223.trab1.server.soap;
 import jakarta.xml.ws.Endpoint;
 import sd2223.trab1.server.common.AbstractServer;
 import sd2223.trab1.server.resources.Discovery;
-import sd2223.trab1.server.util.Token;
+import sd2223.trab1.server.util.Domain;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -24,7 +24,7 @@ public class AbstractSoapServer extends AbstractServer {
     protected void start() throws UnknownHostException {
         String ip = InetAddress.getLocalHost().getHostAddress();
         String serverURI = String.format(SERVER_URI_FMT, ip, port);
-        String serviceNameWDomain = String.format("%s:%s", Token.get(), service);
+        String serviceNameWDomain = String.format("%s:%s", Domain.get(), service);
 
         Endpoint.publish(serverURI.replace(ip,INETADDR_ANY),impl);
 

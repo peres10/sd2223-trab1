@@ -13,6 +13,7 @@ public class JavaCommonMethods {
     }
 
     protected static boolean wrongPwd( User user, String pwd){
+        if (user == null) return true;
         return !user.getPwd().equals(pwd);
     }
 }

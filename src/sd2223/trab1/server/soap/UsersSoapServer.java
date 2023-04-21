@@ -1,7 +1,7 @@
 package sd2223.trab1.server.soap;
 
 import sd2223.trab1.api.java.Users;
-import sd2223.trab1.server.util.Token;
+import sd2223.trab1.server.util.Domain;
 
 import java.util.logging.Logger;
 
@@ -15,7 +15,7 @@ public class UsersSoapServer extends AbstractSoapServer{
     }
 
     public static void main(String[] args) throws Exception {
-        Token.set( args.length > 0 ? args[0] : "");
+        Domain.set( args.length > 0 ? args[0] : "");
 
         new UsersSoapServer().start();
     }

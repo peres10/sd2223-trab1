@@ -137,4 +137,15 @@ public interface FeedsService {
 	List<String> listSubs(@PathParam(USER) String user);
 
 
+	/**
+	 * Extended Feeds Service
+	 */
+
+	/**
+	 * Gets only the messages published by the user
+	 */
+	@GET
+	@Path("/{" + USER +"}/myMessages")
+	@Produces(MediaType.APPLICATION_JSON)
+	List<Message> ownMessages(@PathParam(USER) String user, @QueryParam(TIME) long time);
 }

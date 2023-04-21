@@ -1,6 +1,6 @@
 package sd2223.trab1.server.util;
 
-public class Token {
+public class ServerMIDToken {
 
     private static String token;
 
@@ -12,7 +12,7 @@ public class Token {
         return token ==null ? "" : token;
     }
 
-    public boolean matches(String t){
-        return token != null && token.equals(t);
+    public static long tokenValue() {
+        return Long.parseLong(token) ;
     }
 }

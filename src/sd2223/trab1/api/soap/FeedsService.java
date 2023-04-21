@@ -105,6 +105,15 @@ public interface FeedsService {
     List<String> listSubs(String user) throws FeedsException;
 
 
+    /**
+     * Extended Feeds Service
+     */
+
+    /**
+     * Gets only the messages published by the user
+     */
+    @WebMethod
+    List<Message> ownMessages(String user, long time) throws FeedsException;
 
 
 }

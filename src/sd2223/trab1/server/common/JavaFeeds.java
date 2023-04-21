@@ -8,7 +8,9 @@ import sd2223.trab1.api.User;
 import sd2223.trab1.api.java.Feeds;
 import sd2223.trab1.api.java.Result;
 import sd2223.trab1.api.java.Users;
-import sd2223.trab1.server.util.Token;
+import sd2223.trab1.clients.rest.RestUsersClient;
+import sd2223.trab1.server.util.Domain;
+import sd2223.trab1.server.util.ServerMIDToken;
 
 import java.time.Duration;
 import java.util.*;
@@ -19,50 +21,61 @@ import java.util.stream.Collectors;
 import static sd2223.trab1.api.java.Result.ErrorCode.*;
 import static sd2223.trab1.api.java.Result.error;
 import static sd2223.trab1.api.java.Result.ok;
+import static sd2223.trab1.clients.Clients.FeedsClients;
 import static sd2223.trab1.clients.Clients.UsersClients;
 
 public class JavaFeeds implements Feeds {
 
     final static Logger Log = Logger.getLogger(JavaFeeds.class.getName());
 
-    private static long lastMessageId = 0;
+    //private static long lastMessageId = 0;
     final protected Map<Long, Message> allMessages = new ConcurrentHashMap<>();
     final protected Map<String, List<Long>> userMessages = new ConcurrentHashMap<>();
-    final protected Map<String, Set<String>> usersSubscribedTo = new ConcurrentHashMap<>();
 
-    final protected Map<String ,List<String>> usersSubscribing = new ConcurrentHashMap<>();
+    final protected Map<String, Map<String, Set<String>>> usersSubscribedByDomain = new ConcurrentHashMap<>();
 
+    private long msgIdBase = ServerMIDToken.tokenValue();
+    private long msgIdSeq = 0;
+
+    private long generateMid(){
+        msgIdSeq++;
+        return msgIdSeq * 256 + msgIdBase;
+    }
     static final LoadingCache<String, User> users = CacheBuilder.newBuilder()
             .expireAfterWrite(Duration.ofMillis(1000))
             .build(new CacheLoader<>() {
                 @Override
                 public User load(String name) throws Exception {
-                    return UsersClients.get(Token.get() + ":" + Users.SERVICE_NAME).findUser(name).value();
+                    return UsersClients.get(Domain.get() + ":" + Users.SERVICE_NAME).findUser(name).value();
                 }
             });
 
 
     @Override
     public Result<Long> postMessage(String user, String pwd, Message msg) {
-        msg.setId(lastMessageId++);
-        Log.info(String.format("REST: postMessage: user = %s, password = %s + MSG: ",user,pwd)+msg);
+        String[] usernameTokens = user.split("@");
+
+        String userId = usernameTokens[0];
+        String userDomain = usernameTokens[1];
+
 
         if (JavaCommonMethods.nullValue(user) || JavaCommonMethods.nullValue(pwd)
-                || JavaCommonMethods.nullValue(msg))
+                || JavaCommonMethods.nullValue(msg) || !userDomain.equals(Domain.get()) )
             return error(BAD_REQUEST);
 
-        String userId = user.split("@")[0];
+
         var userPosting = getUser(userId);
         if (JavaCommonMethods.nullValue(userPosting)){
             return error(NOT_FOUND);
         }
 
-        if(wrongPassword(userPosting,pwd)) {
+        if(JavaCommonMethods.wrongPwd(userPosting,pwd)) {
             return error(FORBIDDEN);
         }
 
         List<Long> msgList = userMessages.get(userId);
         synchronized (userMessages) {
+            msg.setId(generateMid());
             if (msgList != null) {
                 msgList.add(msg.getId());
             } else {
@@ -76,7 +89,6 @@ public class JavaFeeds implements Feeds {
             allMessages.putIfAbsent(msg.getId(), msg);
         }
 
-        //putMessageInAllSubscribersFeed(userId,msg.getId());
 
         return ok(msg.getId());
     }
@@ -87,24 +99,32 @@ public class JavaFeeds implements Feeds {
         JavaCommonMethods.nullValue(pwd))
             return error(BAD_REQUEST);
 
-        String userId = user.split("@")[0];
-        var userOwner = getUser(userId);
+        String[] usernameTokens = user.split("@");
 
+        String userId = usernameTokens[0];
+
+        var userOwner = getUser(userId);
         if (JavaCommonMethods.nullValue(userOwner)){
             return error(FORBIDDEN);
         }
 
-        if(wrongPassword(userOwner,pwd)){
+        if(JavaCommonMethods.wrongPwd(userOwner,pwd)){
             return error(FORBIDDEN);
         }
 
         List<Long> ownerMessages =userMessages.get(userId);
 
         if(!allMessages.containsKey(mid) || !ownerMessages.contains(mid))
-            return error(BAD_REQUEST);
+            return error(NOT_FOUND);
 
-        ownerMessages.remove(mid);
-        allMessages.remove(mid);
+
+        synchronized (userMessages) {
+            ownerMessages.remove(mid);
+        }
+
+        synchronized (allMessages) {
+            allMessages.remove(mid);
+        }
 
         return ok();
     }
@@ -112,24 +132,32 @@ public class JavaFeeds implements Feeds {
 
     @Override
     public Result<Message> getMessage(String user, long mid) {
-        Log.info(String.format("REST: getMessage: user = %s mid = ",user)+mid+ " \n");
+        String[] usernameTokens = user.split("@");
 
-        String userId = user.split("@")[0];
+        String userId = usernameTokens[0];
+        String userDomain = usernameTokens[1];
 
         if (JavaCommonMethods.nullValue(userId)  || JavaCommonMethods.nullValue(mid)) {
             return error(BAD_REQUEST);
         }
 
-        Message msg = allMessages.get(mid);
-
-        if ( JavaCommonMethods.nullValue(msg) || !getIfUserExists(userId)){
-            Log.info("aaaaaa\n");
-            return error(NOT_FOUND);
-        }
-
-        if(!checkIfMessageIsInUserFeed(userId,msg)) {
-            Log.info("bbbbbbbbb\n");
-            return error(NOT_FOUND);
+        List<Message> userMsgs;
+        Message msg;
+        if(userDomain.equals(Domain.get())) {
+            var userVal = getUser(userId);
+            if (JavaCommonMethods.nullValue(userVal)) {
+                return error(NOT_FOUND);
+            }
+            if(!userMessages.containsKey(userId)) {
+                userMessages.put(userId, new ArrayList<>());
+            }
+            userMsgs = getAllFeedMessages(userId, 0L);
+            msg = getMessageByMid(userMsgs,mid);
+            if (msg == null){
+                return error(NOT_FOUND);
+            }
+        } else {
+            return forwardGetMessage(user,userDomain,mid);
         }
 
         return ok(msg);
@@ -137,17 +165,121 @@ public class JavaFeeds implements Feeds {
 
     @Override
     public Result<List<Message>> getMessages(String user, long time) {
-        Log.info(String.format("REST: getMessages: user = %s newer than = ", user) + time + "\n");
-        String userId = user.split("@")[0];
+        String[] usernameTokens = user.split("@");
+
+        String userId = usernameTokens[0];
+        String userDomain = usernameTokens[1];
 
         if (JavaCommonMethods.nullValue(userId)) {
             return error(BAD_REQUEST);
         }
 
-        var userToSearch = getUser(userId);
-        if (JavaCommonMethods.nullValue(userToSearch)){
+
+        List<Message> userMsgs;
+        if(userDomain.equals(Domain.get())) {
+            var userVal = getUser(userId);
+            if (JavaCommonMethods.nullValue(userVal)) {
+                return error(NOT_FOUND);
+            }
+            if(!userMessages.containsKey(userId)) {
+                userMessages.put(userId, new ArrayList<>());
+            }
+            userMsgs = getAllFeedMessages(userId, time);
+        } else {
+            return forwardGetMessages(user,userDomain,time);
+        }
+
+
+        return ok(userMsgs);
+
+    }
+
+    @Override
+    public Result<Void> subUser(String user, String userSub, String pwd) {
+        String[] usernameSubscriberTokens = user.split("@");
+        String userSubcriberId = usernameSubscriberTokens[0];
+
+        String[] usernameSubscribingTokens = userSub.split("@");
+        String userSubcribingId = usernameSubscribingTokens[0];
+        String userSubcribingDomain = usernameSubscribingTokens[1];
+
+        var userSubscriber = getUser(userSubcriberId);
+        if(JavaCommonMethods.nullValue(userSubscriber) || JavaCommonMethods.wrongPwd(userSubscriber,pwd))
+            return error(FORBIDDEN);
+
+        User userSubscribing;
+        if(userSubcribingDomain.equals(Domain.get())) {
+            userSubscribing = getUser(userSubcribingId);
+        } else {
+            userSubscribing = getUserInOtherDomain(userSubcribingId, userSubcribingDomain);
+        }
+        if (JavaCommonMethods.nullValue(userSubscribing))
+            return error(NOT_FOUND);
+
+        synchronized (usersSubscribedByDomain) {
+            initSubsInOtherDomains(userSubcriberId);
+            initSubSetForSpecificDomain(userSubcriberId, userSubcribingDomain);
+            addUserToUsersSubsSet(userSubcriberId, userSub);
+        }
+
+
+        return ok();
+    }
+
+    @Override
+    public Result<Void> unsubscribeUser(String user, String userSub, String pwd) {
+        String[] usernameSubscriberTokens = user.split("@");
+        String userSubcriberId = usernameSubscriberTokens[0];
+
+        String[] usernameSubscribingTokens = userSub.split("@");
+        String userUnsubcribingId = usernameSubscribingTokens[0];
+
+        var userSubscriber = getUser(userSubcriberId);
+        if(JavaCommonMethods.nullValue(userSubscriber) || JavaCommonMethods.wrongPwd(userSubscriber,pwd))
+            return error(FORBIDDEN);
+
+        if(JavaCommonMethods.nullValue(userUnsubcribingId)) {
             return error(NOT_FOUND);
         }
+
+        if(!checkIfUserIsSubing(userSubcriberId,userSub)){
+            return error(NOT_FOUND);
+        }
+
+        synchronized (usersSubscribedByDomain) {
+            removeUserFromUsersSubsSet(userSubcriberId, userSub);
+        }
+
+        return ok();
+    }
+
+    @Override
+    public Result<List<String>> listSubs(String user) {
+        String[] usernameTokens = user.split("@");
+        String userId = usernameTokens[0];
+
+        if(JavaCommonMethods.nullValue(userId) || getUser(userId) == null)
+            return error(NOT_FOUND);
+
+
+        initSubsInOtherDomains(userId);
+        var subsList = getAllSubscriptions(userId);
+        return ok(subsList);
+
+    }
+
+    @Override
+    public Result<List<Message>> ownMessages(String user, long time) {
+        if(JavaCommonMethods.nullValue(user) || JavaCommonMethods.nullValue(time))
+            return error(BAD_REQUEST);
+
+        String[] usernameTokens = user.split("@");
+        String userId = usernameTokens[0];
+
+        var userVal = getUser(userId);
+
+        if(userVal == null)
+            return error(NOT_FOUND);
 
         if (!userMessages.containsKey(userId)) {
             userMessages.put(userId, new ArrayList<>());
@@ -155,202 +287,118 @@ public class JavaFeeds implements Feeds {
 
         var messageIDsFromUser = messagesFromUserSinceTime(userMessages.get(userId), time);
 
-        var usersFollowing = usersSubscribedTo.get(userId);
-        if(usersFollowing == null) {
-            usersFollowing = new HashSet<>();
-            usersSubscribedTo.putIfAbsent(userId,usersFollowing);
-        }
-
-        Log.info("--\n");
-        Log.info(usersFollowing.toString());
-        Log.info("--\n");
-        var messagesFromSubscribers= joinMessagesFromFollowing(usersFollowing.stream().toList(),time);
-
-        messageIDsFromUser.addAll(messagesFromSubscribers);
-
         return ok(messageIDsFromUser);
     }
 
-    @Override
-    public Result<Void> subUser(String user, String userSub, String pwd) {
-        Log.info(String.format("REST: subUser: subscriber = %s subscribing = %s \n", user,userSub));
-        String userSubcriberId = user.split("@")[0];
-        String userSubcribingId = userSub.split("@")[0];
-
-        var userSubscriber = getUser(userSubcriberId);
-        if(JavaCommonMethods.nullValue(userSubscriber) || wrongPassword(userSubscriber,pwd))
-            return error(FORBIDDEN);
-
-        var userSubscribing = getUser(userSubcribingId);
-        if(JavaCommonMethods.nullValue(userSubscribing))
-            return error(NOT_FOUND);
-
-        Set<String> subscribingList = usersSubscribedTo.get(userSubcriberId);
-        if (subscribingList == null)
-            subscribingList = new HashSet<>();
-
-        if(!subscribingList.contains(userSub))
-            subscribingList.add(userSub);
-
-        List<String> subscribersList = usersSubscribing.get(userSubscribing);
-        if(subscribersList == null)
-            subscribersList = new ArrayList<>();
-        if(!subscribersList.contains(user))
-            subscribersList.add(user);
-
-        usersSubscribedTo.put(userSubcriberId,subscribingList);
-        usersSubscribing.put(userSubcribingId,subscribersList);
-        System.out.println(usersSubscribedTo.get(userSubcriberId));
-        return ok();
-    }
-
-    @Override
-    public Result<Void> unsubscribeUser(String user, String userSub, String pwd) {
-        Log.info(String.format("REST: unsubscribeUser: subscriber = %s subscribing = %s \n", user,userSub));
-        String userSubcriberId = user.split("@")[0];
-        String userUnsubcribingId = userSub.split("@")[0];
-
-        var userSubscriber = getUser(userSubcriberId);
-        if(JavaCommonMethods.nullValue(userSubscriber) || wrongPassword(userSubscriber,pwd))
-            return error(FORBIDDEN);
-
-        var userUnsubscribing = getUser(userUnsubcribingId);
-        if(JavaCommonMethods.nullValue(userUnsubcribingId)) {
-            Log.info("not found 1\n");
-            return error(NOT_FOUND);
-        }
-
-        var usersSubscribed = usersSubscribedTo.get(userSubcriberId);
-        Log.info(usersSubscribed.toString());
-        if(!usersSubscribed.contains(userSub)) {
-            Log.info("not found 2\n");
-            return error(NOT_FOUND);
-        }
-
-        else
-            usersSubscribed.remove(userUnsubcribingId);
-
-        return ok();
-    }
-
-    @Override
-    public Result<List<String>> listSubs(String user) {
-        Log.info(String.format("REST: listSub: user = %s \n", user));
-        String userId = user.split("@")[0];
-        if(JavaCommonMethods.nullValue(userId) || getUser(userId) == null)
-            return error(NOT_FOUND);
-
-        var listOfSubscriptions = usersSubscribedTo.get(userId);
-        if(JavaCommonMethods.nullValue(listOfSubscriptions)){
-            listOfSubscriptions = new HashSet<>();
-            usersSubscribedTo.putIfAbsent(userId, listOfSubscriptions);
-        }
-
-        return ok(usersSubscribedTo.get(userId).stream().toList());
-
-    }
-
+    //////////////////////////////////////////////////////////////////////////////////////////
 
     private User getUser(String name){
-        Log.info(String.format("checkpoint 2.1\n"));
         try{
-            Log.info(String.format("checkpoint 2.11\n"));
             return users.get(name);
         } catch (Exception x) {
-            Log.info(String.format("entrou no error\n"));
             return null;
         }
     }
 
-    private boolean getIfUserExists(String userId) {
-        return getUser(userId) != null;
+    private List<Message> messagesFromUserSinceTimeWithListMessages(List<Message> msgs, long time){
+        return msgs.stream()
+                .filter(msg -> msg.getCreationTime() > time)
+                .collect(Collectors.toList());
     }
-
-    private List<Message> joinMessagesFromFollowing(List<String> usersFollowing, long time){
-        Log.info("aaaaaa\n");
-        List<Message> messages = new ArrayList<>();
-        for(String u : usersFollowing){
-            String userId = u.split("@")[0];
-            Log.info("--\n");
-            Log.info(userId);
-            Log.info("--\n");
-            //Log.info(userMessages.get(userId).toString());
-            Log.info("vvvvv\n");
-            List<Long> userMessagesMids = userMessages.get(userId);
-            if(userMessagesMids == null)
-                continue;
-            List<Message> uMessages = messagesFromUserSinceTime(userMessagesMids,time);
-            messages.addAll(uMessages);
-        }
-        return messages;
-    }
-
-    /*private boolean checkIfMessageInFeed(String user,Message msg){
-        return ;
-    }*/
-
-    private long generateRandomId(){
-        long min = 0;
-        long max = Long.MAX_VALUE;
-        Random random = new Random();
-        long randomLong = -1;
-        while(randomLong < 0 || allMessages.containsKey(randomLong)){
-            randomLong = (long) (random.nextFloat() * (max - min) + min);
-        }
-        return randomLong;
-    }
-
     private List<Message> messagesFromUserSinceTime(List<Long> midS, long time){
-        Log.info("lllllllll\n");
         return midS.stream()
                 .filter(msgId -> allMessages.containsKey(msgId) &&
                         allMessages.get(msgId).getCreationTime() > time)
                 .map(allMessages::get)
                 .collect(Collectors.toList());
+    }
 
-        /*List<Message> messages = new ArrayList<>();
-        for( long mid : midS){
-            Message msg = allMessages.get(mid);
-            if (msg == null)
-                continue;
-            if (msg.getCreationTime() < time)
-                continue;
-            else
-                messages.add(msg);
+    private void initSubsInOtherDomains(String userId){
+        if (usersSubscribedByDomain.get(userId) == null)
+            usersSubscribedByDomain.put(userId,new ConcurrentHashMap<>());
+    }
+
+    private void initSubSetForSpecificDomain(String userId, String domain){
+        usersSubscribedByDomain.get(userId).computeIfAbsent(domain, k -> new HashSet<>());
+    }
+
+    private Result<Message> forwardGetMessage(String user, String domain, long mid){
+        return FeedsClients.get(domain + ":" + Feeds.SERVICE_NAME).getMessage(user,mid);
+    }
+
+    private Result<List<Message>> forwardGetMessages(String user, String domain, long time){
+        return FeedsClients.get(domain + ":" + Feeds.SERVICE_NAME).getMessages(user,time);
+    }
+    private void addUserToUsersSubsSet(String userId, String userSub){
+        String[] usernameTokens = userSub.split("@");
+        String userDomain = usernameTokens[1];
+
+        usersSubscribedByDomain.get(userId).get(userDomain).add(userSub);
+    }
+
+    private void removeUserFromUsersSubsSet(String userId, String userSub){
+        String[] usernameTokens = userSub.split("@");
+        String userDomain = usernameTokens[1];
+
+        usersSubscribedByDomain.get(userId).get(userDomain).remove(userSub);
+    }
+
+    private boolean checkIfUserIsSubing(String userId, String userSub){
+        return getAllSubscriptions(userId).contains(userSub);
+    }
+
+    private User getUserInOtherDomain(String userId,String domain){
+        return UsersClients.get(domain + ":" + Users.SERVICE_NAME).findUser(userId).value();
+    }
+
+    private Message getMessageByMid(List<Message> messages, long mid){
+        return messages.stream()
+                .filter(m-> m.getId() == mid)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private List<String> getAllSubscriptions(String userId){
+        List<String> allSubscritpions = new ArrayList<>();
+        List<Set<String>> subsByDomain = usersSubscribedByDomain.get(userId).values().stream().toList();
+        if (subsByDomain == null)
+            return allSubscritpions;
+        for(var domain : subsByDomain) {
+            if(domain != null)
+                allSubscritpions.addAll(domain);
         }
-        Log.info("ppppppppppppp\n");
-        return messages;*/
+        return allSubscritpions;
     }
 
-    private boolean checkIfMessageIsInUserFeed(String userId, Message msg){
-        String msgOwner = msg.getUser() + "@" + msg.getDomain();
-        Log.info(msgOwner);
-        Log.info("--\n");
-        Log.info(userMessages.get(userId).toString());
-        Log.info("--\n");
-        if(usersSubscribedTo.containsKey(userId))
-            Log.info(usersSubscribedTo.get(userId).toString());
-        return userMessages.get(userId).contains(msg.getId()) || usersSubscribedTo.get(userId).contains(msgOwner);
-    }
-
-    private boolean wrongPassword(User user, String pwd){
-        if (user == null) return true;
-        return !user.getPwd().equals(pwd) ;
-    }
-
-    private void putMessageInAllSubscribersFeed(String userId,long mid){
-        List<String> subscribers = usersSubscribing.get(userId);
-        if(subscribers!= null) {
-            List<Long> userMessagesList;
-            String subscriberId;
-            for (String u : subscribers) {
-                subscriberId = u.split("@")[0];
-                userMessagesList = userMessages.get(subscriberId);
-                if (userMessagesList == null)
-                    userMessagesList = new ArrayList<>();
-                userMessages.put(subscriberId, userMessagesList);
-                userMessagesList.add(mid);
+    private List<Message> getMessagesFromAllSubscrpitons(String userId, Long time){
+        Map<String, Set<String>> userSubcriptionsByDomain = usersSubscribedByDomain.get(userId);
+        Set<Message> allMessages = new HashSet<>();
+        if(userSubcriptionsByDomain == null)
+            return allMessages.stream().toList();
+        for(String domain  :  userSubcriptionsByDomain.keySet()){
+            if (domain.equals(Domain.get())) {
+                for (String userFromThisDomain : userSubcriptionsByDomain.get(domain)) {
+                    String userIdWithoutDomain = userFromThisDomain.split("@")[0];
+                    var allOtherUserMsg = userMessages.get(userIdWithoutDomain);
+                    if(allOtherUserMsg!=null) {
+                        allMessages.addAll(messagesFromUserSinceTime(allOtherUserMsg, time));
+                    }
+                }
+            } else{
+                Feeds feedsClient = FeedsClients.get(domain + ":" + Feeds.SERVICE_NAME);
+                for (String userFromDomain : userSubcriptionsByDomain.get(domain)){
+                    allMessages.addAll(messagesFromUserSinceTimeWithListMessages(feedsClient.ownMessages(userFromDomain,time).value(),time));
+                }
             }
+
         }
+        return allMessages.stream().toList();
     }
+
+    private List<Message> getAllFeedMessages(String userId, Long time){
+        var allUserMsgs = messagesFromUserSinceTime(userMessages.get(userId),time);
+        allUserMsgs.addAll(getMessagesFromAllSubscrpitons(userId,time));
+        return allUserMsgs;
+    }
+
 }
